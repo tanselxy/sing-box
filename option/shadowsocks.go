@@ -12,8 +12,9 @@ type ShadowsocksInboundOptions struct {
 }
 
 type ShadowsocksUser struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
+	Name        string `json:"name"`
+	Password    string `json:"password"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type ShadowsocksDestination struct {

@@ -13,9 +13,10 @@ type TUICInboundOptions struct {
 }
 
 type TUICUser struct {
-	Name     string `json:"name,omitempty"`
-	UUID     string `json:"uuid,omitempty"`
-	Password string `json:"password,omitempty"`
+	Name        string `json:"name,omitempty"`
+	UUID        string `json:"uuid,omitempty"`
+	Password    string `json:"password,omitempty"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type TUICOutboundOptions struct {

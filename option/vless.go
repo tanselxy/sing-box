@@ -9,9 +9,10 @@ type VLESSInboundOptions struct {
 }
 
 type VLESSUser struct {
-	Name string `json:"name"`
-	UUID string `json:"uuid"`
-	Flow string `json:"flow,omitempty"`
+	Name        string `json:"name"`
+	UUID        string `json:"uuid"`
+	Flow        string `json:"flow,omitempty"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type VLESSOutboundOptions struct {

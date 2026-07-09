@@ -7,6 +7,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
+	"github.com/sagernet/sing-box/common/devicelimit"
 	"github.com/sagernet/sing-box/common/listener"
 	"github.com/sagernet/sing-box/common/mux"
 	"github.com/sagernet/sing-box/common/tls"
@@ -178,6 +179,13 @@ func (h *Inbound) newConnectionEx(ctx context.Context, conn net.Conn, metadata a
 	} else {
 		metadata.User = user
 	}
+	release, err := devicelimit.Acquire(user, h.users[userIndex].DeviceLimit, metadata.Source)
+	if err != nil {
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		h.logger.WarnContext(ctx, "[", user, "] reject inbound connection from ", metadata.Source, ": ", err)
+		return
+	}
+	onClose = devicelimit.ReleaseOnClose(onClose, release)
 	h.logger.InfoContext(ctx, "[", user, "] inbound connection to ", metadata.Destination)
 	h.router.RouteConnectionEx(ctx, conn, metadata, onClose)
 }
@@ -196,6 +204,13 @@ func (h *Inbound) newPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 	} else {
 		metadata.User = user
 	}
+	release, err := devicelimit.Acquire(user, h.users[userIndex].DeviceLimit, metadata.Source)
+	if err != nil {
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		h.logger.WarnContext(ctx, "[", user, "] reject inbound packet connection from ", metadata.Source, ": ", err)
+		return
+	}
+	onClose = devicelimit.ReleaseOnClose(onClose, release)
 	if metadata.Destination.Fqdn == packetaddr.SeqPacketMagicAddress {
 		metadata.Destination = M.Socksaddr{}
 		conn = packetaddr.NewConn(bufio.NewNetPacketConn(conn), metadata.Destination)

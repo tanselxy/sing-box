@@ -11,8 +11,9 @@ type TrojanInboundOptions struct {
 }
 
 type TrojanUser struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
+	Name        string `json:"name"`
+	Password    string `json:"password"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type TrojanOutboundOptions struct {

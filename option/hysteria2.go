@@ -28,8 +28,9 @@ type Hysteria2Obfs struct {
 }
 
 type Hysteria2User struct {
-	Name     string `json:"name,omitempty"`
-	Password string `json:"password,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Password    string `json:"password,omitempty"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type _Hysteria2Masquerade struct {

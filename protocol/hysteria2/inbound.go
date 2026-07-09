@@ -10,6 +10,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
+	"github.com/sagernet/sing-box/common/devicelimit"
 	"github.com/sagernet/sing-box/common/listener"
 	"github.com/sagernet/sing-box/common/tls"
 	C "github.com/sagernet/sing-box/constant"
@@ -20,6 +21,7 @@ import (
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/auth"
 	E "github.com/sagernet/sing/common/exceptions"
+	F "github.com/sagernet/sing/common/format"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -30,12 +32,13 @@ func RegisterInbound(registry *inbound.Registry) {
 
 type Inbound struct {
 	inbound.Adapter
-	router       adapter.Router
-	logger       log.ContextLogger
-	listener     *listener.Listener
-	tlsConfig    tls.ServerConfig
-	service      *hysteria2.Service[int]
-	userNameList []string
+	router        adapter.Router
+	logger        log.ContextLogger
+	listener      *listener.Listener
+	tlsConfig     tls.ServerConfig
+	service       *hysteria2.Service[int]
+	userNameList  []string
+	userLimitList []int
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.Hysteria2InboundOptions) (adapter.Inbound, error) {
@@ -131,15 +134,18 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	}
 	userList := make([]int, 0, len(options.Users))
 	userNameList := make([]string, 0, len(options.Users))
+	userLimitList := make([]int, 0, len(options.Users))
 	userPasswordList := make([]string, 0, len(options.Users))
 	for index, user := range options.Users {
 		userList = append(userList, index)
 		userNameList = append(userNameList, user.Name)
+		userLimitList = append(userLimitList, user.DeviceLimit)
 		userPasswordList = append(userPasswordList, user.Password)
 	}
 	service.UpdateUsers(userList, userPasswordList)
 	inbound.service = service
 	inbound.userNameList = userNameList
+	inbound.userLimitList = userLimitList
 	return inbound, nil
 }
 
@@ -155,13 +161,25 @@ func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, source M.S
 	metadata.Source = source
 	metadata.Destination = destination
 	h.logger.InfoContext(ctx, "inbound connection from ", metadata.Source)
-	userID, _ := auth.UserFromContext[int](ctx)
-	if userName := h.userNameList[userID]; userName != "" {
-		metadata.User = userName
-		h.logger.InfoContext(ctx, "[", userName, "] inbound connection to ", metadata.Destination)
-	} else {
-		h.logger.InfoContext(ctx, "inbound connection to ", metadata.Destination)
+	userID, loaded := auth.UserFromContext[int](ctx)
+	if !loaded || userID < 0 || userID >= len(h.userNameList) {
+		N.CloseOnHandshakeFailure(conn, onClose, E.New("missing user"))
+		return
 	}
+	userName := h.userNameList[userID]
+	if userName == "" {
+		userName = F.ToString(userID)
+	} else {
+		metadata.User = userName
+	}
+	release, err := devicelimit.Acquire(userName, h.userLimitList[userID], metadata.Source)
+	if err != nil {
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		h.logger.WarnContext(ctx, "[", userName, "] reject inbound connection from ", metadata.Source, ": ", err)
+		return
+	}
+	onClose = devicelimit.ReleaseOnClose(onClose, release)
+	h.logger.InfoContext(ctx, "[", userName, "] inbound connection to ", metadata.Destination)
 	h.router.RouteConnectionEx(ctx, conn, metadata, onClose)
 }
 
@@ -177,13 +195,25 @@ func (h *Inbound) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 	metadata.Source = source
 	metadata.Destination = destination
 	h.logger.InfoContext(ctx, "inbound packet connection from ", metadata.Source)
-	userID, _ := auth.UserFromContext[int](ctx)
-	if userName := h.userNameList[userID]; userName != "" {
-		metadata.User = userName
-		h.logger.InfoContext(ctx, "[", userName, "] inbound packet connection to ", metadata.Destination)
-	} else {
-		h.logger.InfoContext(ctx, "inbound packet connection to ", metadata.Destination)
+	userID, loaded := auth.UserFromContext[int](ctx)
+	if !loaded || userID < 0 || userID >= len(h.userNameList) {
+		N.CloseOnHandshakeFailure(conn, onClose, E.New("missing user"))
+		return
 	}
+	userName := h.userNameList[userID]
+	if userName == "" {
+		userName = F.ToString(userID)
+	} else {
+		metadata.User = userName
+	}
+	release, err := devicelimit.Acquire(userName, h.userLimitList[userID], metadata.Source)
+	if err != nil {
+		N.CloseOnHandshakeFailure(conn, onClose, err)
+		h.logger.WarnContext(ctx, "[", userName, "] reject inbound packet connection from ", metadata.Source, ": ", err)
+		return
+	}
+	onClose = devicelimit.ReleaseOnClose(onClose, release)
+	h.logger.InfoContext(ctx, "[", userName, "] inbound packet connection to ", metadata.Destination)
 	h.router.RoutePacketConnectionEx(ctx, conn, metadata, onClose)
 }
 

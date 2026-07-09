@@ -8,6 +8,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
+	"github.com/sagernet/sing-box/common/devicelimit"
 	"github.com/sagernet/sing-box/common/listener"
 	"github.com/sagernet/sing-box/common/mux"
 	"github.com/sagernet/sing-box/common/uot"
@@ -169,6 +170,14 @@ func (h *MultiInbound) newConnection(ctx context.Context, conn net.Conn, metadat
 	} else {
 		metadata.User = user
 	}
+	release, err := devicelimit.Acquire(user, h.users[userIndex].DeviceLimit, metadata.Source)
+	if err != nil {
+		h.logger.WarnContext(ctx, "[", user, "] reject inbound connection from ", metadata.Source, ": ", err)
+		return err
+	}
+	if release != nil {
+		defer release()
+	}
 	h.logger.InfoContext(ctx, "[", user, "] inbound connection to ", metadata.Destination)
 	metadata.Inbound = h.Tag()
 	metadata.InboundType = h.Type()
@@ -191,6 +200,14 @@ func (h *MultiInbound) newPacketConnection(ctx context.Context, conn N.PacketCon
 		user = F.ToString(userIndex)
 	} else {
 		metadata.User = user
+	}
+	release, err := devicelimit.Acquire(user, h.users[userIndex].DeviceLimit, metadata.Source)
+	if err != nil {
+		h.logger.WarnContext(ctx, "[", user, "] reject inbound packet connection from ", metadata.Source, ": ", err)
+		return err
+	}
+	if release != nil {
+		defer release()
 	}
 	ctx = log.ContextWithNewID(ctx)
 	h.logger.InfoContext(ctx, "[", user, "] inbound packet connection from ", metadata.Source)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
+	"github.com/sagernet/sing-box/common/devicelimit"
 	"github.com/sagernet/sing-box/common/dialer"
 	"github.com/sagernet/sing-box/common/listener"
 	C "github.com/sagernet/sing-box/constant"
@@ -26,18 +27,29 @@ func RegisterInbound(registry *inbound.Registry) {
 
 type Inbound struct {
 	inbound.Adapter
-	router   adapter.Router
-	logger   logger.ContextLogger
-	listener *listener.Listener
-	service  *shadowtls.Service
+	router     adapter.Router
+	logger     logger.ContextLogger
+	listener   *listener.Listener
+	service    *shadowtls.Service
+	userLimits map[string]int
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.ShadowTLSInboundOptions) (adapter.Inbound, error) {
 	inbound := &Inbound{
-		Adapter: inbound.NewAdapter(C.TypeShadowTLS, tag),
-		router:  router,
-		logger:  logger,
+		Adapter:    inbound.NewAdapter(C.TypeShadowTLS, tag),
+		router:     router,
+		logger:     logger,
+		userLimits: map[string]int{},
 	}
+	users := common.Map(options.Users, func(it option.ShadowTLSUser) shadowtls.User {
+		if it.Name != "" && it.DeviceLimit > 0 {
+			inbound.userLimits[it.Name] = it.DeviceLimit
+		}
+		return shadowtls.User{
+			Name:     it.Name,
+			Password: it.Password,
+		}
+	})
 
 	if options.Version == 0 {
 		options.Version = 1
@@ -70,9 +82,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 	service, err := shadowtls.NewService(shadowtls.ServiceConfig{
 		Version:  options.Version,
 		Password: options.Password,
-		Users: common.Map(options.Users, func(it option.ShadowTLSUser) shadowtls.User {
-			return (shadowtls.User)(it)
-		}),
+		Users:    users,
 		Handshake: shadowtls.HandshakeConfig{
 			Server: options.Handshake.ServerOptions.Build(),
 			Dialer: handshakeDialer,
@@ -133,6 +143,13 @@ func (h *inboundHandler) NewConnectionEx(ctx context.Context, conn net.Conn, sou
 	metadata.Destination = destination
 	if userName, _ := auth.UserFromContext[string](ctx); userName != "" {
 		metadata.User = userName
+		release, err := devicelimit.Acquire(userName, h.userLimits[userName], metadata.Source)
+		if err != nil {
+			N.CloseOnHandshakeFailure(conn, onClose, err)
+			h.logger.WarnContext(ctx, "[", userName, "] reject inbound connection from ", metadata.Source, ": ", err)
+			return
+		}
+		onClose = devicelimit.ReleaseOnClose(onClose, release)
 		h.logger.InfoContext(ctx, "[", userName, "] inbound connection to ", metadata.Destination)
 	} else {
 		h.logger.InfoContext(ctx, "inbound connection to ", metadata.Destination)

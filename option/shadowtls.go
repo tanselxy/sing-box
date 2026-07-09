@@ -63,8 +63,9 @@ func (w *WildcardSNI) UnmarshalJSON(bytes []byte) error {
 }
 
 type ShadowTLSUser struct {
-	Name     string `json:"name,omitempty"`
-	Password string `json:"password,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Password    string `json:"password,omitempty"`
+	DeviceLimit int    `json:"device_limit,omitempty"`
 }
 
 type ShadowTLSHandshakeOptions struct {
